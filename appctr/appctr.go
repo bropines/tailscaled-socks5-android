@@ -24,9 +24,8 @@ import (
 	_ "golang.org/x/mobile/bind"
 )
 
-// --- LOGGING SYSTEM START ---
+// --- LOGGING SYSTEM ---
 
-// LogManager manages log storage and retrieval
 type LogManager struct {
 	mu      sync.RWMutex
 	logs    []string
@@ -34,7 +33,7 @@ type LogManager struct {
 }
 
 var logManager = &LogManager{
-	logs:    make([]string, 0, 10000), // Храним последние 10000 строк
+	logs:    make([]string, 0, 10000),
 	maxSize: 10000,
 }
 
@@ -42,7 +41,6 @@ func (lm *LogManager) AddLog(entry string) {
 	lm.mu.Lock()
 	defer lm.mu.Unlock()
 	if len(lm.logs) >= lm.maxSize {
-		// Если переполнился, удаляем старую половину
 		lm.logs = lm.logs[len(lm.logs)/2:]
 	}
 	lm.logs = append(lm.logs, entry)
@@ -51,7 +49,6 @@ func (lm *LogManager) AddLog(entry string) {
 func (lm *LogManager) GetLogs() string {
 	lm.mu.RLock()
 	defer lm.mu.RUnlock()
-	// Объединяем массив строк в одну большую строку для передачи в Android
 	return strings.Join(lm.logs, "\n")
 }
 
@@ -61,11 +58,9 @@ func (lm *LogManager) ClearLogs() {
 	lm.logs = make([]string, 0, lm.maxSize)
 }
 
-// Exported for Android
 func GetLogs() string { return logManager.GetLogs() }
 func ClearLogs()      { logManager.ClearLogs() }
 
-// dualHandler пишет и в stdout (logcat), и в память
 type dualHandler struct {
 	textHandler slog.Handler
 }
@@ -81,7 +76,7 @@ func newDualHandler() *dualHandler {
 func (h *dualHandler) Enabled(ctx context.Context, level slog.Level) bool { return true }
 
 func (h *dualHandler) Handle(ctx context.Context, r slog.Record) error {
-	timestamp := r.Time.Format("15:04:05") // Убрал дату для экономии места на экране
+	timestamp := r.Time.Format("15:04:05")
 	level := r.Level.String()
 
 	var sb strings.Builder
@@ -112,9 +107,8 @@ func init() {
 	slog.SetDefault(slog.New(newDualHandler()))
 }
 
-// --- LOGGING SYSTEM END ---
+// --- MAIN LOGIC ---
 
-// --- SSH & PTY UTILS START ---
 func setWinsize(f *os.File, w, h int) {
 	_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), uintptr(syscall.TIOCSWINSZ),
 		uintptr(unsafe.Pointer(&struct{ h, w, x, y uint16 }{uint16(h), uint16(w), 0, 0})))
@@ -131,13 +125,14 @@ type Closer interface {
 func IsRunning() bool { return cmd != nil && cmd.Process != nil }
 
 type StartOptions struct {
-	SSHServer     string
-	ExecPath      string
-	SocketPath    string
-	StatePath     string
-	Socks5Server  string
+	SSHServer    string
+	ExecPath     string
+	SocketPath   string
+	StatePath    string
+	Socks5Server string
 	CloseCallBack Closer
-	AuthKey       string
+	AuthKey      string
+	ExtraUpArgs  string // НОВОЕ ПОЛЕ
 }
 
 func Start(opt *StartOptions) {
@@ -151,7 +146,6 @@ func Start(opt *StartOptions) {
 
 	PC = newPathControl(opt.ExecPath, opt.SocketPath, opt.StatePath)
 
-	// SSH Server (из твоего оригинального кода)
 	if opt.SSHServer != "" {
 		go func() {
 			if err := startSshServer(opt.SSHServer, PC); err != nil {
@@ -173,14 +167,14 @@ func Start(opt *StartOptions) {
 		}
 	}()
 
-	if opt.AuthKey != "" {
-		go registerMachineWithAuthKey(PC, opt.AuthKey)
-	}
+	// Запускаем процесс регистрации/подключения в отдельной горутине
+	go registerMachineWithAuthKey(PC, opt)
 }
 
-func registerMachineWithAuthKey(PC pathControl, authKey string) {
+func registerMachineWithAuthKey(PC pathControl, opt *StartOptions) {
 	count := 0
-	for count <= 5 {
+	// Пытаемся подключиться к сокету несколько раз (ждем пока демон запустится)
+	for count <= 10 {
 		_, err := os.Stat(PC.Socket())
 		if err != nil {
 			count++
@@ -188,23 +182,29 @@ func registerMachineWithAuthKey(PC pathControl, authKey string) {
 			continue
 		}
 
-		// Используем CombinedOutput, но результат пишем в slog
-		data, err := exec.Command(
-			PC.Tailscale(),
-			"--socket",
-			PC.Socket(),
-			"up",
-			"--auth-key",
-			authKey,
-			"--timeout",
-			"10s",
-		).CombinedOutput()
-		
-		slog.Info("tailscale up", "output", string(data), "err", err)
-		
+		// Формируем команду: tailscale up ...
+		args := []string{"--socket", PC.Socket(), "up", "--timeout", "15s"}
+
+		// Если есть AuthKey, добавляем
+		if opt.AuthKey != "" {
+			args = append(args, "--auth-key", opt.AuthKey)
+		}
+
+		// Если есть Дополнительные аргументы, парсим и добавляем
+		if opt.ExtraUpArgs != "" {
+			// strings.Fields разбивает строку по пробелам, игнорируя лишние пробелы
+			customFlags := strings.Fields(opt.ExtraUpArgs)
+			args = append(args, customFlags...)
+		}
+
+		slog.Info("Running tailscale up", "args", args)
+
+		data, err := exec.Command(PC.Tailscale(), args...).CombinedOutput()
+		slog.Info("tailscale up result", "output", string(data), "err", err)
+
 		if err != nil {
 			count++
-			time.Sleep(time.Second)
+			time.Sleep(time.Second * 2)
 			continue
 		}
 
@@ -238,7 +238,6 @@ func rm(path ...string) {
 	if len(path) == 0 {
 		return
 	}
-
 	args := []string{"-rf"}
 	args = append(args, path...)
 	data, err := exec.Command("/system/bin/rm", args...).CombinedOutput()
@@ -283,7 +282,6 @@ func (p pathControl) Socket() string { return p.socketPath }
 func (p *pathControl) State() string { return p.statePath }
 
 func tailscaledCmd(p pathControl, socks5host string) error {
-
 	rm(p.Tailscale(), p.Tailscaled())
 	ln(p.TailscaledSo(), p.Tailscale())
 	ln(p.TailscaledSo(), p.Tailscaled())
@@ -301,9 +299,7 @@ func tailscaledCmd(p pathControl, socks5host string) error {
 		fmt.Sprintf("TS_LOGS_DIR=%s/logs", p.DataDir()),
 	}
 
-	// Читаем stdout/stderr через пайпы и скармливаем в slog
 	errChan := make(chan error)
-	// defer close(errChan) // Не закрываем сразу, иначе паника при отправке
 
 	go func() {
 		stdOut, err := cmd.StdoutPipe()
@@ -311,11 +307,9 @@ func tailscaledCmd(p pathControl, socks5host string) error {
 			errChan <- err
 			return
 		}
-		// defer stdOut.Close() // exec сам закроет
-
 		s := bufio.NewScanner(stdOut)
 		for s.Scan() {
-			slog.Info(s.Text()) // ВОТ ТУТ МАГИЯ: попадает в LogManager
+			slog.Info(s.Text())
 		}
 	}()
 
@@ -325,28 +319,21 @@ func tailscaledCmd(p pathControl, socks5host string) error {
 			errChan <- err
 			return
 		}
-		
 		s := bufio.NewScanner(stdErr)
 		for s.Scan() {
-			slog.Info(s.Text()) // И ТУТ ТОЖЕ
+			slog.Info(s.Text())
 		}
-		
-		errChan <- nil // Сигнализируем, что пайпы настроены (условно)
+		errChan <- nil
 	}()
-    
-    // Небольшой хак: ждем немного, чтобы пайпы инициализировались, 
-    // но в реальности cmd.Run() блокирует.
-    // Упростим логику запуска по сравнению с оригиналом, чтобы избежать дедлоков канала
-    
+
 	return cmd.Run()
 }
 
-// --- SSH SERVER IMPLEMENTATION (ТВОЙ КОД) ---
+// --- SSH PART ---
 
 func startSshServer(addr string, pc pathControl) error {
 	p, _ := pem.Decode([]byte(PrivateKey))
 	key, _ := x509.ParsePKCS1PrivateKey(p.Bytes)
-
 	signer, err := gossh.NewSignerFromKey(key)
 	if err != nil {
 		return err
@@ -364,7 +351,6 @@ func startSshServer(addr string, pc pathControl) error {
 	}
 
 	sshserver = &ssh_server
-
 	slog.Info("starting ssh server", "host", addr)
 	return ssh_server.ListenAndServe()
 }
@@ -378,7 +364,6 @@ Welcome to Tailscaled SSH
 
 func ptyHandler(s ssh.Session, pc pathControl) {
 	_, _ = fmt.Fprintf(s, ptyWelcome, pc.TailscaledSo(), pc.DataDir(), s.RemoteAddr())
-
 	slog.Info("new pty session", "remote addr", s.RemoteAddr())
 
 	cmd := exec.Command("/system/bin/sh")
@@ -397,10 +382,10 @@ func ptyHandler(s ssh.Session, pc pathControl) {
 			}
 		}()
 		go func() {
-			_, _ = io.Copy(f, s) // stdin
+			_, _ = io.Copy(f, s)
 			f.Close()
 		}()
-		_, _ = io.Copy(s, f) // stdout
+		_, _ = io.Copy(s, f)
 		s.Close()
 		_ = cmd.Wait()
 		slog.Info("session exit", "remote addr", s.RemoteAddr())
@@ -413,13 +398,8 @@ func ptyHandler(s ssh.Session, pc pathControl) {
 func sftpHandler(sess ssh.Session) {
 	slog.Info("new sftp session", "remote addr", sess.RemoteAddr())
 	debugStream := io.Discard
-	serverOptions := []sftp.ServerOption{
-		sftp.WithDebug(debugStream),
-	}
-	server, err := sftp.NewServer(
-		sess,
-		serverOptions...,
-	)
+	serverOptions := []sftp.ServerOption{sftp.WithDebug(debugStream)}
+	server, err := sftp.NewServer(sess, serverOptions...)
 	if err != nil {
 		slog.Error("sftp server init", "err", err)
 		return
