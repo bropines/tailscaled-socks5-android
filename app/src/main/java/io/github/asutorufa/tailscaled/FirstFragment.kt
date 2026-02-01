@@ -1,57 +1,31 @@
 package io.github.asutorufa.tailscaled
 
-import android.content.*
-import android.net.Uri
-import android.os.*
-import android.util.Log
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.os.Build
+import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
-import androidx.core.widget.doAfterTextChanged
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import io.github.asutorufa.tailscaled.databinding.FragmentFirstBinding
 
 class FirstFragment : Fragment() {
     private var _binding: FragmentFirstBinding? = null
     private val binding get() = _binding!!
-    private lateinit var sharedPreferences: SharedPreferences
-    private var isRunning = false
-
-    private val bReceiver: BroadcastReceiver = object : BroadcastReceiver() {
+    
+    // Receiver для обновления UI, когда сервис запускается/останавливается
+    private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
-                "START" -> updateUi(true)
-                "STOP" -> updateUi(false)
+                "START" -> updateUiState(true)
+                "STOP" -> updateUiState(false)
             }
-        }
-    }
-
-    private fun updateUi(running: Boolean) {
-        isRunning = running
-        // button_first превратился в buttonFirst
-        binding.buttonFirst.text = if (running) "Stop" else "Start"
-        // status_label превратился в statusLabel
-        binding.statusLabel.text = if (running) "Status: Running" else "Status: Stopped"
-        
-        binding.socks5.isEnabled = !running
-        binding.sshserver.isEnabled = !running
-        binding.authkey.isEnabled = !running
-    }
-
-    private var mService: Messenger? = null
-    private var bound: Boolean = false
-
-    private val mConnection = object : ServiceConnection {
-        override fun onServiceConnected(className: ComponentName, service: IBinder) {
-            mService = Messenger(service)
-            bound = true
-            mService?.send(Message.obtain(null, TailscaledService.MSG_SAY_HELLO, 0, 0))
-        }
-
-        override fun onServiceDisconnected(className: ComponentName) {
-            mService = null
-            bound = false
         }
     }
 
@@ -60,63 +34,90 @@ class FirstFragment : Fragment() {
         return binding.root
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        sharedPreferences = requireActivity().getSharedPreferences("appctr", Context.MODE_PRIVATE)
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
+        // Навигация
+        binding.cardLogs.setOnClickListener {
+            startActivity(Intent(requireContext(), LogsActivity::class.java))
+        }
+        binding.cardSettings.setOnClickListener {
+            startActivity(Intent(requireContext(), SettingsActivity::class.java))
+        }
+
+        // Кнопка Start/Stop
+        binding.btnAction.setOnClickListener {
+            val isRunning = ProxyState.isActualRunning()
+            val intent = Intent(requireContext(), TailscaledService::class.java)
+            
+            if (isRunning) {
+                // Если работает -> шлем команду STOP
+                intent.action = "STOP_ACTION"
+                requireContext().startService(intent)
+                // UI обновится через receiver, но для отзывчивости можно сменить текст сразу
+                binding.btnAction.isEnabled = false 
+            } else {
+                // Если не работает -> шлем команду START
+                intent.action = "START_ACTION"
+                requireContext().startForegroundService(intent)
+                binding.btnAction.isEnabled = false
+            }
+        }
     }
 
     override fun onResume() {
         super.onResume()
-        binding.socks5.setText(sharedPreferences.getString("socks5", "0.0.0.0:1055"))
-        binding.sshserver.setText(sharedPreferences.getString("sshserver", "0.0.0.0:1056"))
-        binding.authkey.setText(sharedPreferences.getString("authkey", ""))
-    }
-
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        val intentFilter = IntentFilter().apply {
+        // Регистрируем ресивер
+        val filter = IntentFilter().apply {
             addAction("START")
             addAction("STOP")
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-            activity?.registerReceiver(bReceiver, intentFilter, Context.RECEIVER_EXPORTED)
-        else activity?.registerReceiver(bReceiver, intentFilter)
-
-        Intent(activity, TailscaledService::class.java).also { intent ->
-            activity?.bindService(intent, mConnection, Context.BIND_AUTO_CREATE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requireContext().registerReceiver(statusReceiver, filter, Context.RECEIVER_EXPORTED)
+        } else {
+            requireContext().registerReceiver(statusReceiver, filter)
         }
 
-        // Авто-сохранение полей
-        binding.socks5.doAfterTextChanged { sharedPreferences.edit().putString("socks5", it.toString()).apply() }
-        binding.sshserver.doAfterTextChanged { sharedPreferences.edit().putString("sshserver", it.toString()).apply() }
-        binding.authkey.doAfterTextChanged { sharedPreferences.edit().putString("authkey", it.toString()).apply() }
+        // Синхронизируем UI с реальным состоянием
+        updateUiState(ProxyState.isActualRunning())
+    }
 
-        // btn_get_key превратился в btnGetKey
-        binding.btnGetKey.setOnClickListener {
-            val url = "https://login.tailscale.com/admin/settings/keys"
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    override fun onPause() {
+        super.onPause()
+        try {
+            requireContext().unregisterReceiver(statusReceiver)
+        } catch (e: Exception) {
+            // ignore
         }
+    }
 
-        binding.buttonFirst.setOnClickListener {
-            if (isRunning) {
-                mService?.send(Message.obtain(null, TailscaledService.MSG_STOP, 0, 0))
-            } else {
-                activity?.startService(Intent(activity, TailscaledService::class.java))
-            }
+    private fun updateUiState(isRunning: Boolean) {
+        binding.btnAction.isEnabled = true
+        
+        if (isRunning) {
+            // State: RUNNING
+            binding.statusText.text = getString(R.string.status_running)
+            binding.btnAction.text = getString(R.string.action_stop)
+            
+            // Зеленый цвет для карточки (примерно, используем системные цвета или хардкод для наглядности)
+            val colorGreen = ContextCompat.getColor(requireContext(), android.R.color.holo_green_light)
+            binding.statusCard.setCardBackgroundColor(colorGreen)
+            binding.statusIcon.setImageResource(android.R.drawable.ic_lock_idle_low_security) // open lock/check
+        } else {
+            // State: STOPPED
+            binding.statusText.text = getString(R.string.status_stopped)
+            binding.btnAction.text = getString(R.string.action_start)
+            
+            // Серый/Дефолтный цвет
+            val typedValue = android.util.TypedValue()
+            requireContext().theme.resolveAttribute(com.google.android.material.R.attr.colorSurfaceContainerHigh, typedValue, true)
+            binding.statusCard.setCardBackgroundColor(typedValue.data)
+            binding.statusIcon.setImageResource(android.R.drawable.ic_lock_idle_lock)
         }
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
-        try {
-            activity?.unregisterReceiver(bReceiver)
-        } catch (e: Exception) { }
-        
-        if (bound) {
-            activity?.unbindService(mConnection)
-            bound = false
-        }
         _binding = null
     }
 }
