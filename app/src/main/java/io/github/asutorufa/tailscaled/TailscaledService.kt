@@ -1,10 +1,14 @@
 package io.github.asutorufa.tailscaled
 
 import android.app.*
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.os.*
+import android.os.Build
+import android.os.IBinder
+import android.os.PowerManager
+import android.service.quicksettings.TileService
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import appctr.Appctr
@@ -19,24 +23,95 @@ class TailscaledService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        mMessenger = Messenger(IncomingHandler(this))
         sharedPreferences = getSharedPreferences("appctr", Context.MODE_PRIVATE)
         
-        // WakeLock для Xiaomi и прочих, чтобы процессор не засыпал
+        // WakeLock
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Tailscaled::WakeLock").apply {
-            acquire()
+            acquire(10*60*1000L /* 10 minutes timeout safety */)
         }
+
+        // Авто-рестарт, если сервис был убит, но "Force Background" включен
+        if (ProxyState.isUserLetRunning(this) && !Appctr.isRunning()) {
+             if (sharedPreferences.getBoolean("force_bg", false)) {
+                 startTailscale()
+             } else {
+                 ProxyState.setUserState(this, false)
+             }
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val action = intent?.action
+        
+        if (action == "STOP_ACTION") {
+            stopMe()
+            return START_NOT_STICKY
+        }
+
+        // Запуск
+        ProxyState.setUserState(this, true)
+        updateTile()
+        
+        if (!Appctr.isRunning()) {
+            startForeground(1, buildNotification("Active"))
+            startTailscale()
+        } else {
+            // Если уже запущен, просто обновляем уведомление
+            notificationManager.notify(1, buildNotification("Active"))
+        }
+        
+        applicationContext.sendBroadcast(Intent("START"))
+        return START_STICKY
+    }
+
+    private fun startTailscale() {
+        val options = StartOptions().apply {
+            socks5Server = sharedPreferences.getString("socks5", "127.0.0.1:1055")
+            sshServer = sharedPreferences.getString("sshserver", "127.0.0.1:1056")
+            authKey = sharedPreferences.getString("authkey", "")
+            
+            execPath = "${applicationInfo.nativeLibraryDir}/libtailscaled.so"
+            socketPath = "${applicationInfo.dataDir}/tailscaled.sock"
+            statePath = "${applicationInfo.dataDir}/state"
+            
+            closeCallBack = Closer { 
+                stopMe() 
+            }
+        }
+
+        Thread {
+            try {
+                Appctr.start(options)
+                applicationContext.sendBroadcast(Intent("START"))
+            } catch (e: Exception) {
+                Log.e(TAG, "Start error: ${e.message}")
+                stopMe()
+            }
+        }.start()
+    }
+
+    private fun stopMe() {
+        ProxyState.setUserState(this, false)
+        Appctr.stop()
+        
+        if (wakeLock?.isHeld == true) wakeLock?.release()
+        
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+        
+        updateTile()
+        applicationContext.sendBroadcast(Intent("STOP"))
+    }
+    
+    private fun updateTile() {
+        TileService.requestListeningState(this, ComponentName(this, ProxyTileService::class.java))
     }
 
     private fun buildNotification(status: String): Notification {
         val channelId = "tailscaled_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId, 
-                "Tailscale Status", 
-                NotificationManager.IMPORTANCE_LOW
-            )
+            val channel = NotificationChannel(channelId, "Tailscale Service", NotificationManager.IMPORTANCE_LOW)
             notificationManager.createNotificationChannel(channel)
         }
 
@@ -46,51 +121,12 @@ class TailscaledService : Service() {
         )
 
         return NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Tailscaled is $status")
-            .setContentText("Userspace node is active")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Tailscaled")
+            .setContentText(status)
+            .setSmallIcon(R.drawable.ic_launcher_foreground) // Замени на нормальную иконку уведомления если есть
             .setOngoing(true)
             .setContentIntent(pendingIntent)
             .build()
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!Appctr.isRunning()) {
-            startForeground(1, buildNotification("running"))
-            startTailscale()
-        }
-        return START_STICKY
-    }
-
-    private fun startTailscale() {
-        // Используем оригинальный набор параметров StartOptions
-        val options = StartOptions().apply {
-            socks5Server = sharedPreferences.getString("socks5", "127.0.0.1:1055")
-            sshServer = sharedPreferences.getString("sshserver", "127.0.0.1:1056")
-            authKey = sharedPreferences.getString("authkey", "")
-            // В оригинальной версии нужны пути к бинарнику и сокету
-            execPath = "${applicationInfo.nativeLibraryDir}/libtailscaled.so"
-            socketPath = "${applicationInfo.dataDir}/tailscaled.sock"
-            statePath = "${applicationInfo.dataDir}/state"
-            closeCallBack = Closer { stopMe() }
-            // ПОЛЕ logCallBack УДАЛЕНО, так как в старом Go его нет
-        }
-
-        Thread {
-            try {
-                Appctr.start(options)
-                applicationContext.sendBroadcast(Intent("START"))
-            } catch (e: Exception) {
-                Log.e(TAG, "Start error: ${e.message}")
-            }
-        }.start()
-    }
-
-    fun stopMe() {
-        Appctr.stop()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
-        applicationContext.sendBroadcast(Intent("STOP"))
     }
 
     override fun onDestroy() {
@@ -98,24 +134,5 @@ class TailscaledService : Service() {
         super.onDestroy()
     }
 
-    private lateinit var mMessenger: Messenger
-    override fun onBind(intent: Intent?): IBinder? = mMessenger.binder
-
-    private class IncomingHandler(val service: TailscaledService) : Handler(Looper.getMainLooper()) {
-        override fun handleMessage(msg: Message) {
-            when (msg.what) {
-                MSG_SAY_HELLO -> {
-                    service.applicationContext.sendBroadcast(Intent(if (Appctr.isRunning()) "START" else "STOP"))
-                }
-                MSG_STOP -> service.stopMe()
-                MSG_START -> service.onStartCommand(null, 0, 0)
-            }
-        }
-    }
-
-    companion object {
-        const val MSG_SAY_HELLO = 0
-        const val MSG_STOP = 1
-        const val MSG_START = 2
-    }
+    override fun onBind(intent: Intent?): IBinder? = null
 }

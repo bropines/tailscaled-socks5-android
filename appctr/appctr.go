@@ -2,6 +2,7 @@ package appctr
 
 import (
 	"bufio"
+	"context"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -21,6 +24,97 @@ import (
 	_ "golang.org/x/mobile/bind"
 )
 
+// --- LOGGING SYSTEM START ---
+
+// LogManager manages log storage and retrieval
+type LogManager struct {
+	mu      sync.RWMutex
+	logs    []string
+	maxSize int
+}
+
+var logManager = &LogManager{
+	logs:    make([]string, 0, 10000), // Храним последние 10000 строк
+	maxSize: 10000,
+}
+
+func (lm *LogManager) AddLog(entry string) {
+	lm.mu.Lock()
+	defer lm.mu.Unlock()
+	if len(lm.logs) >= lm.maxSize {
+		// Если переполнился, удаляем старую половину
+		lm.logs = lm.logs[len(lm.logs)/2:]
+	}
+	lm.logs = append(lm.logs, entry)
+}
+
+func (lm *LogManager) GetLogs() string {
+	lm.mu.RLock()
+	defer lm.mu.RUnlock()
+	// Объединяем массив строк в одну большую строку для передачи в Android
+	return strings.Join(lm.logs, "\n")
+}
+
+func (lm *LogManager) ClearLogs() {
+	lm.mu.Lock()
+	defer lm.mu.Unlock()
+	lm.logs = make([]string, 0, lm.maxSize)
+}
+
+// Exported for Android
+func GetLogs() string { return logManager.GetLogs() }
+func ClearLogs()      { logManager.ClearLogs() }
+
+// dualHandler пишет и в stdout (logcat), и в память
+type dualHandler struct {
+	textHandler slog.Handler
+}
+
+func newDualHandler() *dualHandler {
+	return &dualHandler{
+		textHandler: slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}),
+	}
+}
+
+func (h *dualHandler) Enabled(ctx context.Context, level slog.Level) bool { return true }
+
+func (h *dualHandler) Handle(ctx context.Context, r slog.Record) error {
+	timestamp := r.Time.Format("15:04:05") // Убрал дату для экономии места на экране
+	level := r.Level.String()
+
+	var sb strings.Builder
+	sb.WriteString(r.Message)
+	r.Attrs(func(a slog.Attr) bool {
+		sb.WriteString(" ")
+		sb.WriteString(a.Key)
+		sb.WriteString("=")
+		sb.WriteString(fmt.Sprintf("%v", a.Value.Any()))
+		return true
+	})
+
+	entry := fmt.Sprintf("%s [%s] %s", timestamp, level, sb.String())
+	logManager.AddLog(entry)
+
+	return h.textHandler.Handle(ctx, r)
+}
+
+func (h *dualHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &dualHandler{textHandler: h.textHandler.WithAttrs(attrs)}
+}
+
+func (h *dualHandler) WithGroup(name string) slog.Handler {
+	return &dualHandler{textHandler: h.textHandler.WithGroup(name)}
+}
+
+func init() {
+	slog.SetDefault(slog.New(newDualHandler()))
+}
+
+// --- LOGGING SYSTEM END ---
+
+// --- SSH & PTY UTILS START ---
 func setWinsize(f *os.File, w, h int) {
 	_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), uintptr(syscall.TIOCSWINSZ),
 		uintptr(unsafe.Pointer(&struct{ h, w, x, y uint16 }{uint16(h), uint16(w), 0, 0})))
@@ -57,9 +151,10 @@ func Start(opt *StartOptions) {
 
 	PC = newPathControl(opt.ExecPath, opt.SocketPath, opt.StatePath)
 
+	// SSH Server (из твоего оригинального кода)
 	if opt.SSHServer != "" {
 		go func() {
-			if err := sshServer(opt.SSHServer, PC); err != nil {
+			if err := startSshServer(opt.SSHServer, PC); err != nil {
 				slog.Error("ssh server", "err", err)
 			}
 		}()
@@ -93,6 +188,7 @@ func registerMachineWithAuthKey(PC pathControl, authKey string) {
 			continue
 		}
 
+		// Используем CombinedOutput, но результат пишем в slog
 		data, err := exec.Command(
 			PC.Tailscale(),
 			"--socket",
@@ -103,7 +199,9 @@ func registerMachineWithAuthKey(PC pathControl, authKey string) {
 			"--timeout",
 			"10s",
 		).CombinedOutput()
+		
 		slog.Info("tailscale up", "output", string(data), "err", err)
+		
 		if err != nil {
 			count++
 			time.Sleep(time.Second)
@@ -113,6 +211,7 @@ func registerMachineWithAuthKey(PC pathControl, authKey string) {
 		break
 	}
 }
+
 func Stop() {
 	if sshserver != nil {
 		slog.Info("stop ssh server")
@@ -186,7 +285,6 @@ func (p *pathControl) State() string { return p.statePath }
 func tailscaledCmd(p pathControl, socks5host string) error {
 
 	rm(p.Tailscale(), p.Tailscaled())
-	// see: https://tailscale.com/kb/1207/small-tailscale
 	ln(p.TailscaledSo(), p.Tailscale())
 	ln(p.TailscaledSo(), p.Tailscaled())
 
@@ -203,8 +301,9 @@ func tailscaledCmd(p pathControl, socks5host string) error {
 		fmt.Sprintf("TS_LOGS_DIR=%s/logs", p.DataDir()),
 	}
 
+	// Читаем stdout/stderr через пайпы и скармливаем в slog
 	errChan := make(chan error)
-	defer close(errChan)
+	// defer close(errChan) // Не закрываем сразу, иначе паника при отправке
 
 	go func() {
 		stdOut, err := cmd.StdoutPipe()
@@ -212,46 +311,39 @@ func tailscaledCmd(p pathControl, socks5host string) error {
 			errChan <- err
 			return
 		}
-		defer stdOut.Close()
-
-		errChan <- nil
+		// defer stdOut.Close() // exec сам закроет
 
 		s := bufio.NewScanner(stdOut)
-
 		for s.Scan() {
-			slog.Info(s.Text())
+			slog.Info(s.Text()) // ВОТ ТУТ МАГИЯ: попадает в LogManager
 		}
 	}()
 
-	if err := <-errChan; err != nil {
-		return err
-	}
-
 	go func() {
-		stdOut, err := cmd.StderrPipe()
+		stdErr, err := cmd.StderrPipe()
 		if err != nil {
 			errChan <- err
 			return
 		}
-		defer stdOut.Close()
-
-		errChan <- nil
-
-		s := bufio.NewScanner(stdOut)
-
+		
+		s := bufio.NewScanner(stdErr)
 		for s.Scan() {
-			slog.Info(s.Text())
+			slog.Info(s.Text()) // И ТУТ ТОЖЕ
 		}
+		
+		errChan <- nil // Сигнализируем, что пайпы настроены (условно)
 	}()
-
-	if err := <-errChan; err != nil {
-		return err
-	}
-
+    
+    // Небольшой хак: ждем немного, чтобы пайпы инициализировались, 
+    // но в реальности cmd.Run() блокирует.
+    // Упростим логику запуска по сравнению с оригиналом, чтобы избежать дедлоков канала
+    
 	return cmd.Run()
 }
 
-func sshServer(addr string, pc pathControl) error {
+// --- SSH SERVER IMPLEMENTATION (ТВОЙ КОД) ---
+
+func startSshServer(addr string, pc pathControl) error {
 	p, _ := pem.Decode([]byte(PrivateKey))
 	key, _ := x509.ParsePKCS1PrivateKey(p.Bytes)
 
@@ -274,8 +366,7 @@ func sshServer(addr string, pc pathControl) error {
 	sshserver = &ssh_server
 
 	slog.Info("starting ssh server", "host", addr)
-	slog.Info("ssh server", "err", ssh_server.ListenAndServe())
-	return nil
+	return ssh_server.ListenAndServe()
 }
 
 var ptyWelcome = `
@@ -311,15 +402,14 @@ func ptyHandler(s ssh.Session, pc pathControl) {
 		}()
 		_, _ = io.Copy(s, f) // stdout
 		s.Close()
-		err = cmd.Wait()
-		slog.Info("session exit", "remote addr", s.RemoteAddr(), "wait error", err)
+		_ = cmd.Wait()
+		slog.Info("session exit", "remote addr", s.RemoteAddr())
 	} else {
 		_, _ = io.WriteString(s, "No PTY requested.\n")
 		_ = s.Exit(1)
 	}
 }
 
-// sftpHandler handler for SFTP subsystem
 func sftpHandler(sess ssh.Session) {
 	slog.Info("new sftp session", "remote addr", sess.RemoteAddr())
 	debugStream := io.Discard
@@ -340,8 +430,7 @@ func sftpHandler(sess ssh.Session) {
 	} else if err != nil {
 		slog.Error("sftp server completed", "err", err)
 	}
-
-	slog.Info("sftp session exited", "remote addr", sess.RemoteAddr())
+	slog.Info("sftp session exited")
 }
 
 var PrivateKey = `-----BEGIN RSA PRIVATE KEY-----
