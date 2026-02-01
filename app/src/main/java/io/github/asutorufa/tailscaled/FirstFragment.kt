@@ -1,17 +1,8 @@
 package io.github.asutorufa.tailscaled
 
-import android.content.BroadcastReceiver
-import android.content.ComponentName
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.content.ServiceConnection
-import android.content.SharedPreferences
-import android.os.Build
-import android.os.Bundle
-import android.os.IBinder
-import android.os.Message
-import android.os.Messenger
+import android.content.*
+import android.net.Uri
+import android.os.*
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -21,88 +12,50 @@ import androidx.core.widget.doAfterTextChanged
 import androidx.fragment.app.Fragment
 import io.github.asutorufa.tailscaled.databinding.FragmentFirstBinding
 
-
-/**
- * A simple [Fragment] subclass as the default destination in the navigation.
- */
 class FirstFragment : Fragment() {
-    private lateinit var binding: FragmentFirstBinding
-
+    private var _binding: FragmentFirstBinding? = null
+    private val binding get() = _binding!!
     private lateinit var sharedPreferences: SharedPreferences
-
     private var isRunning = false
+
     private val bReceiver: BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            Log.d(tag, "onReceive: ${intent.action}")
-
             when (intent.action) {
-                "START" -> {
-                    binding.buttonFirst.text = "Stop"
-                    isRunning = true
-                    binding.socks5.isEnabled = false
-                    binding.sshserver.isEnabled = false
-                    binding.authkey.isEnabled = false
-                }
-
-                "STOP" -> {
-                    binding.buttonFirst.text = "Start"
-                    isRunning = false
-                    binding.socks5.isEnabled = true
-                    binding.sshserver.isEnabled = true
-                    binding.authkey.isEnabled = true
-                }
+                "START" -> updateUi(true)
+                "STOP" -> updateUi(false)
             }
         }
     }
 
-    /** Messenger for communicating with the service.  */
-    private var mService: Messenger? = null
+    private fun updateUi(running: Boolean) {
+        isRunning = running
+        binding.button_first.text = if (running) "Stop" else "Start"
+        binding.status_label.text = if (running) "Status: Running" else "Status: Stopped"
+        
+        binding.socks5.isEnabled = !running
+        binding.sshserver.isEnabled = !running
+        binding.authkey.isEnabled = !running
+    }
 
-    /** Flag indicating whether we have called bind on the service.  */
+    private var mService: Messenger? = null
     private var bound: Boolean = false
 
-    /**
-     * Class for interacting with the main interface of the service.
-     */
     private val mConnection = object : ServiceConnection {
-
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
-            // This is called when the connection with the service has been
-            // established, giving us the object we can use to
-            // interact with the service.  We are communicating with the
-            // service using a Messenger, so here we get a client-side
-            // representation of that from the raw IBinder object.
             mService = Messenger(service)
             bound = true
-            mService?.send(
-                Message.obtain(
-                    null,
-                    TailscaledService.MSG_SAY_HELLO,
-                    0,
-                    0
-                )
-            )
+            mService?.send(Message.obtain(null, TailscaledService.MSG_SAY_HELLO, 0, 0))
         }
 
         override fun onServiceDisconnected(className: ComponentName) {
-            // This is called when the connection with the service has been
-            // unexpectedly disconnected -- that is, its process crashed.
             mService = null
             bound = false
         }
     }
 
-    override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View {
-        binding = FragmentFirstBinding.inflate(inflater, container, false)
-
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+        _binding = FragmentFirstBinding.inflate(inflater, container, false)
         return binding.root
-    }
-
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -112,19 +65,9 @@ class FirstFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-
-        binding.socks5.setText(
-            sharedPreferences.getString("socks5", "0.0.0.0:1055"),
-            TextView.BufferType.EDITABLE,
-        )
-        binding.sshserver.setText(
-            sharedPreferences.getString("sshserver", "0.0.0.0:1056"),
-            TextView.BufferType.EDITABLE,
-        )
-        binding.authkey.setText(
-            sharedPreferences.getString("authkey", ""),
-            TextView.BufferType.EDITABLE,
-        )
+        binding.socks5.setText(sharedPreferences.getString("socks5", "0.0.0.0:1055"))
+        binding.sshserver.setText(sharedPreferences.getString("sshserver", "0.0.0.0:1056"))
+        binding.authkey.setText(sharedPreferences.getString("authkey", ""))
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -138,52 +81,37 @@ class FirstFragment : Fragment() {
             activity?.registerReceiver(bReceiver, intentFilter, Context.RECEIVER_EXPORTED)
         else activity?.registerReceiver(bReceiver, intentFilter)
 
-        // Bind to the service
         Intent(activity, TailscaledService::class.java).also { intent ->
             activity?.bindService(intent, mConnection, Context.BIND_AUTO_CREATE)
         }
 
+        // Авто-сохранение полей
+        binding.socks5.doAfterTextChanged { sharedPreferences.edit().putString("socks5", it.toString()).apply() }
+        binding.sshserver.doAfterTextChanged { sharedPreferences.edit().putString("sshserver", it.toString()).apply() }
+        binding.authkey.doAfterTextChanged { sharedPreferences.edit().putString("authkey", it.toString()).apply() }
 
+        // Кнопка получения ключа
+        binding.btn_get_key.setOnClickListener {
+            val url = "https://login.tailscale.com/admin/settings/keys"
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }
 
-        binding.socks5.doAfterTextChanged { text ->
-            sharedPreferences.edit().apply {
-                putString("socks5", text.toString())
-                commit()
+        binding.button_first.setOnClickListener {
+            if (isRunning) {
+                mService?.send(Message.obtain(null, TailscaledService.MSG_STOP, 0, 0))
+            } else {
+                activity?.startService(Intent(activity, TailscaledService::class.java))
             }
         }
+    }
 
-        binding.sshserver.doAfterTextChanged { text ->
-            sharedPreferences.edit().apply {
-                putString("sshserver", text.toString())
-                commit()
-            }
+    override fun onDestroyView() {
+        super.onDestroyView()
+        activity?.unregisterReceiver(bReceiver)
+        if (bound) {
+            activity?.unbindService(mConnection)
+            bound = false
         }
-
-        binding.authkey.doAfterTextChanged { text ->
-            sharedPreferences.edit().apply {
-                putString("authkey", text.toString())
-                commit()
-            }
-
-        }
-
-        binding.buttonFirst.setOnClickListener {
-            Log.d("activity", "is running: $isRunning")
-            if (isRunning) mService?.send(
-                Message.obtain(
-                    null,
-                    TailscaledService.MSG_STOP,
-                    0,
-                    0
-                )
-            )
-            else
-                activity?.startService(
-                    Intent(
-                        activity,
-                        TailscaledService::class.java
-                    )
-                )
-        }
+        _binding = null
     }
 }
