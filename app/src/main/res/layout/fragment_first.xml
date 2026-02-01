@@ -4,91 +4,102 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:fillViewport="true"
     tools:context=".FirstFragment">
 
-    <androidx.constraintlayout.widget.ConstraintLayout
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:padding="30dp">
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
 
-        <EditText
-            android:id="@+id/socks5"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="16dp"
-            android:autofillHints="0.0.0.0:1055"
-            android:ems="10"
-            android:inputType="text"
-            android:text="Socks5"
-            app:layout_constraintBottom_toTopOf="@+id/sshserver"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintVertical_bias="0.0"
-            tools:layout_editor_absoluteX="65dp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Connection Settings"
+            android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
+            android:layout_marginBottom="24dp"/>
 
-        <EditText
-            android:id="@+id/sshserver"
+        <!-- SOCKS5 Field -->
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_marginTop="16dp"
+            android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
-            android:autofillHints="0.0.0.0:1056"
-            android:ems="10"
-            android:inputType="text"
-            android:text="SSH"
-            app:layout_constraintTop_toBottomOf="@+id/socks5"
-            app:layout_constraintBottom_toTopOf="@+id/authkey"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            tools:layout_editor_absoluteX="81dp"
-            tools:layout_editor_absoluteY="61dp" />
+            android:hint="SOCKS5 Listen Address"
+            app:helperText="Local proxy address (e.g. 127.0.0.1:1055)"
+            app:startIconDrawable="@android:drawable/ic_menu_directions">
 
-        <EditText
-            android:id="@+id/authkey"
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/socks5"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="text"
+                android:text="0.0.0.0:1055" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- SSH/HTTP Field -->
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_marginTop="16dp"
+            android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
-            android:autofillHints="tskey-xxxx"
-            android:ems="10"
-            android:inputType="text"
-            android:text="AuthKey"
-            app:layout_constraintTop_toBottomOf="@+id/sshserver"
-            app:layout_constraintBottom_toTopOf="@+id/button_first"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            tools:layout_editor_absoluteX="81dp"
-            tools:layout_editor_absoluteY="61dp" />
-<!--        <TextView-->
-<!--            android:id="@+id/textview_first"-->
-<!--            android:layout_width="match_parent"-->
-<!--            android:layout_height="match_parent"-->
-<!--            android:layout_marginTop="16dp"-->
-<!--            android:layout_marginBottom="16dp"-->
-<!--            android:text="@string/lorem_ipsum"-->
-<!--            app:layout_constraintBottom_toTopOf="@+id/button_first"-->
-<!--            app:layout_constraintTop_toBottomOf="@+id/sshserver"-->
-<!--            app:layout_constraintEnd_toEndOf="parent"-->
-<!--            app:layout_constraintHorizontal_bias="0.497"-->
-<!--            app:layout_constraintStart_toStartOf="parent"-->
-<!--            app:layout_constraintVertical_bias="0.25" />-->
+            android:hint="SSH Server Address"
+            app:helperText="Secondary port for SSH (e.g. 0.0.0.1:1056)"
+            app:startIconDrawable="@android:drawable/ic_lock_lock">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/sshserver"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="text"
+                android:text="0.0.0.0:1056" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Auth Key Field -->
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:hint="Auth Key"
+            app:endIconMode="clear_text"
+            app:helperText="tskey-auth-..."
+            app:startIconDrawable="@android:drawable/ic_menu_view">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/authkey"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textPassword" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <Button
+            android:id="@+id/btn_get_key"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:layout_marginBottom="32dp"
+            android:text="Get key from Tailscale Console" />
 
         <Button
             android:id="@+id/button_first"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:text="Start"
+            android:textSize="18sp"
+            app:cornerRadius="12dp" />
+
+        <TextView
+            android:id="@+id/status_label"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="16dp"
-            android:text="@string/next"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintHorizontal_bias="0.498"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/sshserver"
-            app:layout_constraintVertical_bias="1.0" />
+            android:layout_marginTop="24dp"
+            android:text="Status: Stopped"
+            android:textAlignment="center"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+            android:textColor="?android:attr/textColorSecondary" />
 
-
-    </androidx.constraintlayout.widget.ConstraintLayout>
+    </LinearLayout>
 </androidx.core.widget.NestedScrollView>
