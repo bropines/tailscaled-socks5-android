@@ -1,134 +1,173 @@
 package io.github.asutorufa.tailscaled
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.app.Service
+import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.os.Build
-import android.os.Handler
-import android.os.IBinder
-import android.os.Looper
-import android.os.Message
-import android.os.Messenger
+import android.os.*
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.core.content.getSystemService
 import appctr.Appctr
 import appctr.Closer
+import appctr.LogCallback
 import appctr.StartOptions
 
-
 class TailscaledService : Service() {
-    private val notification by lazy { application.getSystemService<NotificationManager>()!! }
+    private val TAG = "TailscaledService"
+    private val notificationManager by lazy { getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager }
     private lateinit var sharedPreferences: SharedPreferences
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var tailscaleIp: String = "0.0.0.0"
 
     override fun onCreate() {
         super.onCreate()
         mMessenger = Messenger(IncomingHandler(this))
         sharedPreferences = getSharedPreferences("appctr", Context.MODE_PRIVATE)
+        
+        // 1. Удерживаем процессор, чтобы туннель не падал при выключенном экране
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Tailscaled::WakeLock").apply {
+            acquire()
+        }
     }
 
-    private fun startNotification() {
-        // Notifications on Oreo and above need a channel
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            notification.createNotificationChannel(
-                NotificationChannel(
-                    packageName,
-                    "Tailscaled",
-                    NotificationManager.IMPORTANCE_MIN
-                )
+    // Создает уведомление для Foreground Service
+    private fun buildNotification(status: String): Notification {
+        val channelId = "tailscaled_channel"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId, 
+                "Tailscale Service Status", 
+                NotificationManager.IMPORTANCE_LOW
             )
+            notificationManager.createNotificationChannel(channel)
+        }
 
-        startForeground(
-            1,
-            NotificationCompat.Builder(this, packageName)
-                .setContentTitle("Tailscaled は実行中です")
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
-                .setContentIntent(
-                    PendingIntent.getActivity(
-                        this,
-                        0,
-                        Intent(this, MainActivity::class.java),
-                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                    )
-                )
-                .build()
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+
+        val description = if (tailscaleIp != "0.0.0.0") "IP: $tailscaleIp" else "Connecting to network..."
+
+        return NotificationCompat.Builder(this, channelId)
+            .setContentTitle("Tailscaled: $status")
+            .setContentText(description)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(Notification.CATEGORY_SERVICE)
+            .setOngoing(true)
+            .setContentIntent(pendingIntent)
+            .build()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "starting")
-        if (Appctr.isRunning()) return START_STICKY
-        start()
-        startNotification()
-        applicationContext.sendBroadcast(Intent("START"))
+        if (!Appctr.isRunning()) {
+            Log.d(TAG, "Starting Tailscaled engine...")
+            startForeground(1, buildNotification("starting"))
+            startTailscale()
+        } else {
+            // Если сервис уже запущен, просто обновляем уведомление
+            startForeground(1, buildNotification("running"))
+        }
+        
+        // START_STICKY приказывает системе перезапустить сервис, если он будет убит
         return START_STICKY
     }
 
-    override fun onBind(p0: Intent?): IBinder? {
-        return mMessenger.binder
+    private val logCallback = object : LogCallback {
+        override fun onLog(msg: String?) {
+            msg?.let { text ->
+                // Отправляем сырые логи во фрагмент для отображения
+                val intent = Intent("LOG_UPDATE").apply {
+                    putExtra("log", text)
+                }
+                sendBroadcast(intent)
+
+                // Если мы еще не знаем свой IP, ищем его в логах
+                if (tailscaleIp == "0.0.0.0" && text.contains("100.")) {
+                    val match = Regex("100\\.\\d+\\.\\d+\\.\\d+").find(text)
+                    if (match != null) {
+                        tailscaleIp = match.value
+                        // Обновляем уведомление (теперь там будет IP)
+                        notificationManager.notify(1, buildNotification("connected"))
+                    }
+                }
+            }
+        }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        Log.d(TAG, "try to stopMe")
-        stopMe()
+    private fun startTailscale() {
+        val options = StartOptions().apply {
+            socks5Server = sharedPreferences.getString("socks5", "127.0.0.1:1055")
+            sshServer = sharedPreferences.getString("sshserver", "127.0.0.1:1056")
+            authKey = sharedPreferences.getString("authkey", "")
+            statePath = "${applicationInfo.dataDir}/tailscale-state"
+            closeCallBack = Closer { stopMe() }
+            logCallBack = logCallback
+        }
+
+        // Запуск Go-движка в отдельном потоке, так как это блокирующая операция
+        Thread {
+            try {
+                Appctr.start(options)
+                applicationContext.sendBroadcast(Intent("START"))
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start Appctr: ${e.message}")
+            }
+        }.start()
     }
 
     private fun stopMe() {
-        Log.d(TAG, "try to stopMe")
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        Log.d(TAG, "Stopping service and engine...")
         Appctr.stop()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            stopForeground(true)
+        }
         stopSelf()
         applicationContext.sendBroadcast(Intent("STOP"))
     }
 
+    override fun onDestroy() {
+        if (wakeLock?.isHeld == true) {
+            wakeLock?.release()
+        }
+        super.onDestroy()
+    }
+
     /**
-     * Target we publish for clients to send messages to IncomingHandler.
+     * Взаимодействие с UI (MainActivity/FirstFragment)
      */
     private lateinit var mMessenger: Messenger
 
-    /**
-     * Handler of incoming messages from clients.
-     */
+    override fun onBind(intent: Intent?): IBinder? {
+        return mMessenger.binder
+    }
+
     private class IncomingHandler(
-        var context: TailscaledService,
-        private val applicationContext: Context = context.applicationContext
+        val service: TailscaledService
     ) : Handler(Looper.getMainLooper()) {
         override fun handleMessage(msg: Message) {
-            Log.d(TAG, "receive message: ${msg.what}")
             when (msg.what) {
                 MSG_SAY_HELLO -> {
-                    applicationContext.sendBroadcast(Intent(if (Appctr.isRunning()) "START" else "STOP"))
+                    // При подключении UI сообщаем текущий статус
+                    val status = if (Appctr.isRunning()) "START" else "STOP"
+                    service.applicationContext.sendBroadcast(Intent(status))
                 }
-
                 MSG_STOP -> {
-                    context.stopMe()
+                    service.stopMe()
                 }
-
-                MSG_START -> context.onStartCommand(null, 0, 0)
-
+                MSG_START -> {
+                    service.onStartCommand(null, 0, 0)
+                }
                 else -> super.handleMessage(msg)
             }
         }
     }
 
-    private fun start() = Appctr.start(StartOptions().apply {
-        socks5Server = sharedPreferences.getString("socks5", "0.0.0.0:1055")
-        sshServer = sharedPreferences.getString("sshserver", "0.0.0.0:1056")
-        authKey = sharedPreferences.getString("authkey", "")
-        execPath = "${applicationInfo.nativeLibraryDir}/libtailscaled.so"
-        socketPath = "${applicationInfo.dataDir}/tailscaled.sock"
-        statePath = "${applicationInfo.dataDir}/state"
-        closeCallBack = Closer { stopMe() }
-    })
-
-
     companion object {
-        private val TAG = TailscaledService::class.java.simpleName
         const val MSG_SAY_HELLO = 0
         const val MSG_STOP = 1
         const val MSG_START = 2
