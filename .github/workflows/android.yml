@@ -6,13 +6,28 @@ on:
     tags: [ v* ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch: 
+    inputs:
+      build_type:
+        description: 'Build type to generate'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - 'debug'
+          - 'release'
+          - 'all'
+      skip_signing:
+        description: 'Skip APK signing (only for debug builds or if keystore is missing)'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # Использую v4 как стабильные версии (в 2026 могут быть новее, но v4 точно работают)
       - uses: actions/checkout@v4
         with:
           fetch-depth: "0"
@@ -40,9 +55,13 @@ jobs:
           cache: gradle
 
       - name: Decode Keystore
-        if: github.event_name != 'pull_request'
+        if: |
+          (github.event_name == 'push' || github.event.inputs.build_type != 'debug') && 
+          github.event.inputs.skip_signing != 'true'
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/release.jks
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }} 
 
       - name: build core
         run: |
@@ -56,12 +75,24 @@ jobs:
           gomobile init
           sh build.sh
 
+      - name: Determine Gradle build command
+        id: gradle_command
+        run: |
+          BUILD_COMMAND=""
+          case "${{ github.event.inputs.build_type }}" in
+            "debug") BUILD_COMMAND="app:assembleDebug";;
+            "release") BUILD_COMMAND="app:assembleRelease";;
+            "all") BUILD_COMMAND="app:assembleDebug app:assembleRelease";;
+            *) BUILD_COMMAND="app:assembleRelease";; # Default to release
+          esac
+          echo "command=$BUILD_COMMAND" >> "$GITHUB_OUTPUT"
+
       - name: Build with Gradle
         run: |
           chmod +x gradlew
-          ./gradlew app:assembleDebug app:assembleRelease --stacktrace
+          ./gradlew ${{ steps.gradle_command.outputs.command }} --stacktrace
         env:
-          KEYSTORE_FILE: release.jks
+          KEYSTORE_FILE: ${{ (github.event.inputs.skip_signing != 'true') && 'release.jks' || 'debug.keystore' }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
