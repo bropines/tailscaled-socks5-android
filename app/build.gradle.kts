@@ -16,7 +16,7 @@ android {
         minSdk = 24
         targetSdk = 36
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -33,14 +33,24 @@ android {
     }
 
     signingConfigs {
-        if (System.getenv("KEYSTORE_PATH") != null)
             create("releaseConfig") {
-                storeFile = file(System.getenv("KEYSTORE_PATH"))
-                keyAlias = System.getenv("KEY_ALIAS")
+                val keystorePath = System.getenv("KEYSTORE_FILE") ?: "debug.keystore"
+                storeFile = file(keystorePath)
                 storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
                 keyPassword = System.getenv("KEY_PASSWORD")
             }
-    }
+        }
+
+        buildTypes {
+            release {
+                isMinifyEnabled = true
+                isShrinkResources = true
+                proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+                
+                signingConfig = signingConfigs.getByName("releaseConfig")
+            }
+        }
 
     this.buildOutputs.all {
         val variantOutputImpl = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
