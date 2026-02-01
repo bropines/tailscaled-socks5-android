@@ -25,13 +25,11 @@ class TailscaledService : Service() {
         super.onCreate()
         sharedPreferences = getSharedPreferences("appctr", Context.MODE_PRIVATE)
         
-        // WakeLock
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Tailscaled::WakeLock").apply {
-            acquire(10*60*1000L /* 10 minutes timeout safety */)
+            acquire(10*60*1000L)
         }
 
-        // Авто-рестарт, если сервис был убит, но "Force Background" включен
         if (ProxyState.isUserLetRunning(this) && !Appctr.isRunning()) {
              if (sharedPreferences.getBoolean("force_bg", false)) {
                  startTailscale()
@@ -49,7 +47,6 @@ class TailscaledService : Service() {
             return START_NOT_STICKY
         }
 
-        // Запуск
         ProxyState.setUserState(this, true)
         updateTile()
         
@@ -57,7 +54,6 @@ class TailscaledService : Service() {
             startForeground(1, buildNotification("Active"))
             startTailscale()
         } else {
-            // Если уже запущен, просто обновляем уведомление
             notificationManager.notify(1, buildNotification("Active"))
         }
         
@@ -70,6 +66,8 @@ class TailscaledService : Service() {
             socks5Server = sharedPreferences.getString("socks5", "127.0.0.1:1055")
             sshServer = sharedPreferences.getString("sshserver", "127.0.0.1:1056")
             authKey = sharedPreferences.getString("authkey", "")
+            // Передаем Extra Args в Go
+            extraUpArgs = sharedPreferences.getString("extra_args", "") ?: ""
             
             execPath = "${applicationInfo.nativeLibraryDir}/libtailscaled.so"
             socketPath = "${applicationInfo.dataDir}/tailscaled.sock"
@@ -123,7 +121,7 @@ class TailscaledService : Service() {
         return NotificationCompat.Builder(this, channelId)
             .setContentTitle("Tailscaled")
             .setContentText(status)
-            .setSmallIcon(R.drawable.ic_launcher_foreground) // Замени на нормальную иконку уведомления если есть
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setOngoing(true)
             .setContentIntent(pendingIntent)
             .build()

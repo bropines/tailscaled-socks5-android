@@ -22,12 +22,14 @@ class SettingsActivity : AppCompatActivity() {
         binding.authKey.setText(prefs.getString("authkey", ""))
         binding.socks5Addr.setText(prefs.getString("socks5", "127.0.0.1:1055"))
         binding.sshAddr.setText(prefs.getString("sshserver", "127.0.0.1:1056"))
+        binding.extraArgs.setText(prefs.getString("extra_args", ""))
         binding.switchForceBg.isChecked = prefs.getBoolean("force_bg", false)
 
         // Save values automatically
         binding.authKey.doAfterTextChanged { prefs.edit().putString("authkey", it.toString()).apply() }
         binding.socks5Addr.doAfterTextChanged { prefs.edit().putString("socks5", it.toString()).apply() }
         binding.sshAddr.doAfterTextChanged { prefs.edit().putString("sshserver", it.toString()).apply() }
+        binding.extraArgs.doAfterTextChanged { prefs.edit().putString("extra_args", it.toString()).apply() }
         
         binding.switchForceBg.setOnCheckedChangeListener { _, isChecked ->
             prefs.edit().putBoolean("force_bg", isChecked).apply()

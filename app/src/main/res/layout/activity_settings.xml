@@ -62,9 +62,23 @@
                 android:layout_height="wrap_content"
                 android:hint="SSH Server Address"
                 app:helperText="e.g. 127.0.0.1:1056"
-                android:layout_marginBottom="24dp">
+                android:layout_marginBottom="16dp">
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/ssh_addr"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- Extra Up Arguments (НОВОЕ ПОЛЕ) -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Extra Up Arguments"
+                app:helperText="e.g. --exit-node=100.x.y.z --advertise-exit-node"
+                android:layout_marginBottom="24dp">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/extra_args"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:inputType="text" />
