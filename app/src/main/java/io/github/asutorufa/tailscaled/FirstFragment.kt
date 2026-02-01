@@ -29,8 +29,10 @@ class FirstFragment : Fragment() {
 
     private fun updateUi(running: Boolean) {
         isRunning = running
-        binding.button_first.text = if (running) "Stop" else "Start"
-        binding.status_label.text = if (running) "Status: Running" else "Status: Stopped"
+        // button_first превратился в buttonFirst
+        binding.buttonFirst.text = if (running) "Stop" else "Start"
+        // status_label превратился в statusLabel
+        binding.statusLabel.text = if (running) "Status: Running" else "Status: Stopped"
         
         binding.socks5.isEnabled = !running
         binding.sshserver.isEnabled = !running
@@ -90,13 +92,13 @@ class FirstFragment : Fragment() {
         binding.sshserver.doAfterTextChanged { sharedPreferences.edit().putString("sshserver", it.toString()).apply() }
         binding.authkey.doAfterTextChanged { sharedPreferences.edit().putString("authkey", it.toString()).apply() }
 
-        // Кнопка получения ключа
-        binding.btn_get_key.setOnClickListener {
+        // btn_get_key превратился в btnGetKey
+        binding.btnGetKey.setOnClickListener {
             val url = "https://login.tailscale.com/admin/settings/keys"
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         }
 
-        binding.button_first.setOnClickListener {
+        binding.buttonFirst.setOnClickListener {
             if (isRunning) {
                 mService?.send(Message.obtain(null, TailscaledService.MSG_STOP, 0, 0))
             } else {
@@ -107,7 +109,10 @@ class FirstFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
-        activity?.unregisterReceiver(bReceiver)
+        try {
+            activity?.unregisterReceiver(bReceiver)
+        } catch (e: Exception) { }
+        
         if (bound) {
             activity?.unbindService(mConnection)
             bound = false
