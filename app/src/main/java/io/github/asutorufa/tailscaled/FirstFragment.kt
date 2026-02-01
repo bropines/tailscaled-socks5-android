@@ -91,28 +91,24 @@ class FirstFragment : Fragment() {
         }
     }
 
-    private fun updateUiState(isRunning: Boolean) {
+private fun updateUiState(isRunning: Boolean) {
         binding.btnAction.isEnabled = true
         
         if (isRunning) {
-            // State: RUNNING
             binding.statusText.text = getString(R.string.status_running)
             binding.btnAction.text = getString(R.string.action_stop)
             
-            // Зеленый цвет для карточки (примерно, используем системные цвета или хардкод для наглядности)
             val colorGreen = ContextCompat.getColor(requireContext(), android.R.color.holo_green_light)
             binding.statusCard.setCardBackgroundColor(colorGreen)
-            binding.statusIcon.setImageResource(android.R.drawable.ic_lock_idle_low_security) // open lock/check
+            binding.statusIcon.setImageResource(R.drawable.ic_launcher_foreground) 
         } else {
-            // State: STOPPED
             binding.statusText.text = getString(R.string.status_stopped)
             binding.btnAction.text = getString(R.string.action_start)
             
-            // Серый/Дефолтный цвет
             val typedValue = android.util.TypedValue()
             requireContext().theme.resolveAttribute(com.google.android.material.R.attr.colorSurfaceContainerHigh, typedValue, true)
             binding.statusCard.setCardBackgroundColor(typedValue.data)
-            binding.statusIcon.setImageResource(android.R.drawable.ic_lock_idle_lock)
+            binding.statusIcon.setImageResource(R.drawable.ic_launcher_foreground)
         }
     }
 
