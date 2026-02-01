@@ -13,7 +13,7 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="Settings"
+            app:title="@string/btn_settings"
             app:navigationIcon="@drawable/ic_baseline_arrow_back"/>
     </com.google.android.material.appbar.AppBarLayout>
 
@@ -40,12 +40,12 @@
                     android:inputType="text" />
             </com.google.android.material.textfield.TextInputLayout>
 
-            <!-- SOCKS5 -->
+            <!-- SOCKS5 (Исправлено android:helperText -> app:helperText) -->
             <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:hint="SOCKS5 Address"
-                android:helperText="e.g. 127.0.0.1:1055"
+                app:helperText="e.g. 127.0.0.1:1055"
                 android:layout_marginBottom="16dp">
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/socks5_addr"
@@ -53,12 +53,12 @@
                     android:text="127.0.0.1:1055"/>
             </com.google.android.material.textfield.TextInputLayout>
 
-            <!-- SSH Server -->
+            <!-- SSH Server (Исправлено android:helperText -> app:helperText) -->
             <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:hint="SSH Server Address"
-                android:helperText="e.g. 127.0.0.1:1056"
+                app:helperText="e.g. 127.0.0.1:1056"
                 android:layout_marginBottom="24dp">
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/ssh_addr"
