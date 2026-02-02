@@ -1,8 +1,13 @@
 package io.github.asutorufa.tailscaled
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.widget.doAfterTextChanged
 import io.github.asutorufa.tailscaled.databinding.ActivitySettingsBinding
 
@@ -20,6 +25,21 @@ class SettingsActivity : AppCompatActivity() {
 
         loadSettings()
         setupListeners()
+
+        binding.fabRestart.setOnClickListener {
+            val stopIntent = Intent(this, TailscaledService::class.java).apply {
+                action = "STOP_ACTION"
+            }
+            startService(stopIntent)
+
+            Handler(Looper.getMainLooper()).postDelayed({
+                val startIntent = Intent(this, TailscaledService::class.java).apply {
+                    action = "START_ACTION"
+                }
+                ContextCompat.startForegroundService(this, startIntent)
+                Toast.makeText(this, "Service Restarted", Toast.LENGTH_SHORT).show()
+            }, 500)
+        }
     }
 
     private fun loadSettings() {

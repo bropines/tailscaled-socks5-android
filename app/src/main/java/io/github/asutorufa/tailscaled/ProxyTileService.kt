@@ -16,7 +16,6 @@ class ProxyTileService : TileService() {
     override fun onClick() {
         super.onClick()
         
-        // Запускаем ToggleActivity, чтобы обойти ограничения на запуск FGS из фона
         val intent = Intent(this, ToggleActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
@@ -35,7 +34,6 @@ class ProxyTileService : TileService() {
 
     private fun updateTile() {
         val tile = qsTile ?: return
-        // Проверяем, хочет ли пользователь, чтобы VPN работал
         val isRunning = ProxyState.isUserLetRunning(this)
         
         tile.state = if (isRunning) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
