@@ -13,7 +13,7 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="Settings"
+            app:title="@string/settings_title"
             app:navigationIcon="@drawable/ic_baseline_arrow_back"/>
     </com.google.android.material.appbar.AppBarLayout>
 
@@ -28,79 +28,201 @@
             android:orientation="vertical"
             android:padding="16dp">
 
-            <!-- Auth Key -->
+            <!-- Category: General -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/cat_general"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp"/>
+
             <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Auth Key (tskey-...)"
+                android:hint="@string/auth_key"
                 app:endIconMode="clear_text"
-                android:layout_marginBottom="16dp">
+                android:layout_marginBottom="12dp">
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/auth_key"
+                    android:inputType="text" 
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="text" />
+                    android:layout_height="wrap_content"/>
             </com.google.android.material.textfield.TextInputLayout>
 
-            <!-- SOCKS5 -->
             <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="SOCKS5 Address"
-                app:helperText="e.g. 127.0.0.1:1055"
-                android:layout_marginBottom="16dp">
+                android:hint="@string/hostname"
+                android:layout_marginBottom="12dp">
                 <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/socks5_addr"
+                    android:id="@+id/hostname"
+                    android:inputType="text"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="text" />
+                    android:layout_height="wrap_content"/>
             </com.google.android.material.textfield.TextInputLayout>
-
-            <!-- SSH Server -->
+            
             <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="SSH Server Address"
-                app:helperText="e.g. 127.0.0.1:1056"
-                android:layout_marginBottom="16dp">
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/ssh_addr"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="text" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <!-- Extra Up Arguments (НОВОЕ ПОЛЕ) -->
-            <com.google.android.material.textfield.TextInputLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Extra Up Arguments"
-                app:helperText="e.g. --exit-node=100.x.y.z --advertise-exit-node"
+                android:hint="@string/login_server"
+                app:helperText="Optional (Headscale)"
                 android:layout_marginBottom="24dp">
                 <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/extra_args"
+                    android:id="@+id/login_server"
+                    android:inputType="textUri"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="text" />
+                    android:layout_height="wrap_content"/>
             </com.google.android.material.textfield.TextInputLayout>
 
-            <!-- Force Background Switch -->
+            <!-- Category: Network -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/cat_network"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp"/>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="@string/socks5_addr"
+                android:layout_marginBottom="12dp">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/socks5_addr"
+                    android:inputType="text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/sw_accept_routes"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/sw_accept_routes"
+                android:minHeight="48dp" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/sw_accept_routes_desc"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?android:textColorSecondary"
+                android:layout_marginBottom="12dp"/>
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/sw_accept_dns"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/sw_accept_dns"
+                android:minHeight="48dp" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/sw_accept_dns_desc"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?android:textColorSecondary"
+                android:layout_marginBottom="24dp"/>
+
+
+            <!-- Category: Exit Node -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/cat_exit_node"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp"/>
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/sw_advertise_exit_node"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/sw_advertise_exit_node"
+                android:minHeight="48dp" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/sw_advertise_exit_node_desc"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?android:textColorSecondary"
+                android:layout_marginBottom="12dp"/>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="@string/exit_node_ip"
+                android:layout_marginBottom="12dp">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/exit_node_ip"
+                    android:inputType="text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/sw_allow_lan"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/sw_allow_lan"
+                android:minHeight="48dp" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/sw_allow_lan_desc"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?android:textColorSecondary"
+                android:layout_marginBottom="24dp"/>
+
+
+            <!-- Category: Advanced -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/cat_advanced"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp"/>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="@string/ssh_addr"
+                android:layout_marginBottom="12dp">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/ssh_addr"
+                    android:inputType="text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="@string/extra_args"
+                app:helperText="@string/extra_args_desc"
+                android:layout_marginBottom="16dp">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/extra_args"
+                    android:inputType="text" 
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
             <com.google.android.material.materialswitch.MaterialSwitch
                 android:id="@+id/switch_force_bg"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Force Background Run"
+                android:text="@string/force_bg_title"
                 android:minHeight="48dp" />
-            
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Try to restart service if killed by system"
+                android:text="@string/force_bg_subtitle"
                 android:textAppearance="?attr/textAppearanceBodySmall"
                 android:textColor="?android:textColorSecondary"
-                android:layout_marginBottom="16dp"/>
+                android:layout_marginBottom="24dp"/>
 
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
-
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
