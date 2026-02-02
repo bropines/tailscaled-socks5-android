@@ -18,12 +18,12 @@ import appctr.StartOptions
 class TailscaledService : Service() {
     private val TAG = "TailscaledService"
     private val notificationManager by lazy { getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager }
-    private lateinit var sharedPreferences: SharedPreferences
+    private lateinit var prefs: SharedPreferences
     private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
-        sharedPreferences = getSharedPreferences("appctr", Context.MODE_PRIVATE)
+        prefs = getSharedPreferences("appctr", Context.MODE_PRIVATE)
         
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Tailscaled::WakeLock").apply {
@@ -31,7 +31,7 @@ class TailscaledService : Service() {
         }
 
         if (ProxyState.isUserLetRunning(this) && !Appctr.isRunning()) {
-             if (sharedPreferences.getBoolean("force_bg", false)) {
+             if (prefs.getBoolean("force_bg", false)) {
                  startTailscale()
              } else {
                  ProxyState.setUserState(this, false)
@@ -41,7 +41,6 @@ class TailscaledService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
-        
         if (action == "STOP_ACTION") {
             stopMe()
             return START_NOT_STICKY
@@ -62,20 +61,54 @@ class TailscaledService : Service() {
     }
 
     private fun startTailscale() {
+        // --- СБОРКА АРГУМЕНТОВ ---
+        val argsBuilder = StringBuilder()
+
+        // 1. Hostname
+        val hostname = prefs.getString("hostname", "")
+        if (!hostname.isNullOrEmpty()) argsBuilder.append("--hostname=$hostname ")
+
+        // 2. Login Server (Headscale)
+        val loginServer = prefs.getString("login_server", "")
+        if (!loginServer.isNullOrEmpty()) argsBuilder.append("--login-server=$loginServer ")
+
+        // 3. Routing & DNS
+        if (prefs.getBoolean("accept_routes", false)) argsBuilder.append("--accept-routes ")
+        // accept-dns по дефолту true, пишем флаг только если false
+        if (!prefs.getBoolean("accept_dns", true)) argsBuilder.append("--accept-dns=false ")
+
+        // 4. Exit Node (Client)
+        val exitNodeIp = prefs.getString("exit_node_ip", "")
+        if (!exitNodeIp.isNullOrEmpty()) {
+            argsBuilder.append("--exit-node=$exitNodeIp ")
+            if (prefs.getBoolean("exit_node_allow_lan", false)) {
+                argsBuilder.append("--exit-node-allow-lan-access ")
+            }
+        }
+
+        // 5. Advertise Exit Node (Server)
+        if (prefs.getBoolean("advertise_exit_node", false)) {
+            argsBuilder.append("--advertise-exit-node ")
+        }
+
+        // 6. Raw Extra Args (в самом конце, чтобы переопределить если что)
+        val rawArgs = prefs.getString("extra_args_raw", "")
+        if (!rawArgs.isNullOrEmpty()) argsBuilder.append("$rawArgs")
+
+        Log.d(TAG, "Generated Args: $argsBuilder")
+
         val options = StartOptions().apply {
-            socks5Server = sharedPreferences.getString("socks5", "127.0.0.1:1055")
-            sshServer = sharedPreferences.getString("sshserver", "127.0.0.1:1056")
-            authKey = sharedPreferences.getString("authkey", "")
-            // Передаем Extra Args в Go
-            extraUpArgs = sharedPreferences.getString("extra_args", "") ?: ""
+            socks5Server = prefs.getString("socks5", "127.0.0.1:1055")
+            sshServer = prefs.getString("sshserver", "127.0.0.1:1056")
+            authKey = prefs.getString("authkey", "")
+            
+            // Вот сюда суем нашу собранную строку
+            extraUpArgs = argsBuilder.toString()
             
             execPath = "${applicationInfo.nativeLibraryDir}/libtailscaled.so"
             socketPath = "${applicationInfo.dataDir}/tailscaled.sock"
             statePath = "${applicationInfo.dataDir}/state"
-            
-            closeCallBack = Closer { 
-                stopMe() 
-            }
+            closeCallBack = Closer { stopMe() }
         }
 
         Thread {
@@ -92,12 +125,9 @@ class TailscaledService : Service() {
     private fun stopMe() {
         ProxyState.setUserState(this, false)
         Appctr.stop()
-        
         if (wakeLock?.isHeld == true) wakeLock?.release()
-        
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
-        
         updateTile()
         applicationContext.sendBroadcast(Intent("STOP"))
     }
@@ -131,6 +161,6 @@ class TailscaledService : Service() {
         if (wakeLock?.isHeld == true) wakeLock?.release()
         super.onDestroy()
     }
-
+    
     override fun onBind(intent: Intent?): IBinder? = null
 }
