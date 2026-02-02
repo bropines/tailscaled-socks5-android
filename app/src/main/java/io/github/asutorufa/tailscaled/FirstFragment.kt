@@ -19,7 +19,6 @@ class FirstFragment : Fragment() {
     private var _binding: FragmentFirstBinding? = null
     private val binding get() = _binding!!
     
-    // Receiver для обновления UI, когда сервис запускается/останавливается
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
@@ -37,7 +36,6 @@ class FirstFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        // Навигация
         binding.cardLogs.setOnClickListener {
             startActivity(Intent(requireContext(), LogsActivity::class.java))
         }
@@ -45,19 +43,15 @@ class FirstFragment : Fragment() {
             startActivity(Intent(requireContext(), SettingsActivity::class.java))
         }
 
-        // Кнопка Start/Stop
         binding.btnAction.setOnClickListener {
             val isRunning = ProxyState.isActualRunning()
             val intent = Intent(requireContext(), TailscaledService::class.java)
             
             if (isRunning) {
-                // Если работает -> шлем команду STOP
                 intent.action = "STOP_ACTION"
                 requireContext().startService(intent)
-                // UI обновится через receiver, но для отзывчивости можно сменить текст сразу
                 binding.btnAction.isEnabled = false 
             } else {
-                // Если не работает -> шлем команду START
                 intent.action = "START_ACTION"
                 requireContext().startForegroundService(intent)
                 binding.btnAction.isEnabled = false
@@ -67,7 +61,6 @@ class FirstFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        // Регистрируем ресивер
         val filter = IntentFilter().apply {
             addAction("START")
             addAction("STOP")
@@ -78,7 +71,6 @@ class FirstFragment : Fragment() {
             requireContext().registerReceiver(statusReceiver, filter)
         }
 
-        // Синхронизируем UI с реальным состоянием
         updateUiState(ProxyState.isActualRunning())
     }
 

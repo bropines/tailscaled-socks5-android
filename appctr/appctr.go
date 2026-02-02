@@ -132,12 +132,16 @@ type StartOptions struct {
 	Socks5Server string
 	CloseCallBack Closer
 	AuthKey      string
-	ExtraUpArgs  string // НОВОЕ ПОЛЕ
+	ExtraUpArgs  string
 }
 
 func Start(opt *StartOptions) {
-	if IsRunning() {
-		return
+	Stop()
+	
+	time.Sleep(500 * time.Millisecond)
+
+	if opt.SocketPath != "" {
+		_ = os.Remove(opt.SocketPath)
 	}
 
 	if opt.Socks5Server == "" {
@@ -148,6 +152,7 @@ func Start(opt *StartOptions) {
 
 	if opt.SSHServer != "" {
 		go func() {
+			time.Sleep(1 * time.Second)
 			if err := startSshServer(opt.SSHServer, PC); err != nil {
 				slog.Error("ssh server", "err", err)
 			}
@@ -167,32 +172,26 @@ func Start(opt *StartOptions) {
 		}
 	}()
 
-	// Запускаем процесс регистрации/подключения в отдельной горутине
 	go registerMachineWithAuthKey(PC, opt)
 }
 
 func registerMachineWithAuthKey(PC pathControl, opt *StartOptions) {
 	count := 0
-	// Пытаемся подключиться к сокету несколько раз (ждем пока демон запустится)
-	for count <= 10 {
+	for count <= 15 {
 		_, err := os.Stat(PC.Socket())
 		if err != nil {
 			count++
-			time.Sleep(time.Second)
+			time.Sleep(1 * time.Second)
 			continue
 		}
 
-		// Формируем команду: tailscale up ...
 		args := []string{"--socket", PC.Socket(), "up", "--timeout", "15s"}
 
-		// Если есть AuthKey, добавляем
 		if opt.AuthKey != "" {
 			args = append(args, "--auth-key", opt.AuthKey)
 		}
 
-		// Если есть Дополнительные аргументы, парсим и добавляем
 		if opt.ExtraUpArgs != "" {
-			// strings.Fields разбивает строку по пробелам, игнорируя лишние пробелы
 			customFlags := strings.Fields(opt.ExtraUpArgs)
 			args = append(args, customFlags...)
 		}
@@ -204,7 +203,7 @@ func registerMachineWithAuthKey(PC pathControl, opt *StartOptions) {
 
 		if err != nil {
 			count++
-			time.Sleep(time.Second * 2)
+			time.Sleep(2 * time.Second)
 			continue
 		}
 
@@ -225,12 +224,19 @@ func Stop() {
 	if x != nil && x.Process != nil {
 		slog.Info("stop tailscaled cmd")
 		_ = x.Process.Signal(syscall.SIGTERM)
+		
+		done := make(chan error, 1)
 		go func() {
-			time.Sleep(time.Second * 5)
-			if x.Process != nil {
-				_ = x.Process.Kill()
-			}
+			_, err := x.Process.Wait()
+			done <- err
 		}()
+
+		select {
+		case <-time.After(2 * time.Second):
+			slog.Info("killing tailscaled cmd")
+			_ = x.Process.Kill()
+		case <-done:
+		}
 	}
 }
 

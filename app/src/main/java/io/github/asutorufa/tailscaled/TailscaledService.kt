@@ -61,7 +61,6 @@ class TailscaledService : Service() {
     }
 
     private fun startTailscale() {
-        // --- СБОРКА АРГУМЕНТОВ ---
         val argsBuilder = StringBuilder()
 
         // 1. Hostname
@@ -74,7 +73,6 @@ class TailscaledService : Service() {
 
         // 3. Routing & DNS
         if (prefs.getBoolean("accept_routes", false)) argsBuilder.append("--accept-routes ")
-        // accept-dns по дефолту true, пишем флаг только если false
         if (!prefs.getBoolean("accept_dns", true)) argsBuilder.append("--accept-dns=false ")
 
         // 4. Exit Node (Client)
@@ -91,7 +89,7 @@ class TailscaledService : Service() {
             argsBuilder.append("--advertise-exit-node ")
         }
 
-        // 6. Raw Extra Args (в самом конце, чтобы переопределить если что)
+        // 6. Raw Extra Args
         val rawArgs = prefs.getString("extra_args_raw", "")
         if (!rawArgs.isNullOrEmpty()) argsBuilder.append("$rawArgs")
 
@@ -102,7 +100,6 @@ class TailscaledService : Service() {
             sshServer = prefs.getString("sshserver", "127.0.0.1:1056")
             authKey = prefs.getString("authkey", "")
             
-            // Вот сюда суем нашу собранную строку
             extraUpArgs = argsBuilder.toString()
             
             execPath = "${applicationInfo.nativeLibraryDir}/libtailscaled.so"
